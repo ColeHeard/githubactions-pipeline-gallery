@@ -1,0 +1,76 @@
+###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<
+### Basic SharePoint Framework Pipeline - Microsoft 365
+### Version: 1.0.0
+###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<
+name: "Basic SharePoint Framework Pipeline - Microsoft 365"
+
+# This workflow will trigger on one of two conditions - pushes to the main branch or a  "workflow_dispatch"
+# Workflow dispatch is used manually initiate the actions. This is extremely useful during the testing phases. 
+on:
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+
+# Variables that are available for all the jobs in the workflow
+# Depending on the use-case, the package name could be passed from the pipeline. 
+env:
+  PACKAGE: 'table-of-contents.sppkg'
+
+# Here we kick off the job and select a runner. 
+# I chose Ubuntu for reliability and cost-effectiveness.
+jobs:
+  spfx-gulp:
+    name: 'SPFX Gulp'
+    runs-on: self-hosted
+
+# This action clones our code down to the runner. 
+# https://github.com/actions/checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+# The setup-node action will install and configured node. 
+# https://github.com/actions/setup-node
+      - name: Node.js install
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16.x
+    
+# NPM will be installed. 
+# Using the ci switch instead of i as this is a non-interactive workflow.
+      - name: NPM install
+        run: npm ci
+
+# Gulp global installation.
+      - name: Gulp install
+        run: npm i -g gulp
+    
+# These gulp commands output a .sspkg package.
+      - name: Gulp package
+        run: |
+          gulp bundle --ship
+          gulp package-solution --ship   
+    
+# Login to tenant using action-cli-login.
+# This action uses https://pnp.github.io/cli-microsoft365/ to log into Microsoft 365.
+# https://github.com/pnp/action-cli-login
+      - name: M365 login
+        id: login
+        uses: pnp/action-cli-login@v2.2.1
+        with:
+          ADMIN_USERNAME:  ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD:  ${{ secrets.ADMIN_PASSWORD }}
+          
+# In an ideal world, we would be using a certificate and an application registration service principal.
+# Due to limitations with SharePoint authentication, only the username and password auth method may be used.
+# See the disclaimers on this page for additional information: https://pnp.github.io/cli-microsoft365/user-guide/connecting-office-365/
+    
+# Deploy package to tenant using action-cli-deploy
+# https://github.com/pnp/action-cli-deploy
+      - name: SharePoint deploy
+        id: deploy
+        uses: pnp/action-cli-deploy@v3.0.1
+        with:
+          APP_FILE_PATH: ./package/${{ env.PACKAGE }}
+          OVERWRITE: true

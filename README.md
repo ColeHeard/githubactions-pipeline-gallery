@@ -6,14 +6,15 @@
 
 This repository houses my sample GitHub Action workflow files.
 
-Currently, only my SharePoint Framework pipeline is public.  
+Currently, only my SharePoint Framework & Azure pipelines are public.  
 
 Other samples will be included in the future. 
 
 ## Files
 | Name | YAML | Version |
 |------|---------|---------|
-| **SharePoint Framework Pipeline** | __spfxpipeline__ | 1.0.0 |
+| **Basic SharePoint Framework Pipeline** | __spfxpipeline__ | 1.0.0 |
+| **Terraform Pipeline - Azure** | __tfpipeline__ | 1.0.0 |
 
 ---
 

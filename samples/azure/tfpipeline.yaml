@@ -2,7 +2,7 @@
 ### Basic Terraform Pipeline - Azure
 ### Version: 1.0.0
 ###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<
-name: "Basic Terraform Pipeline"
+name: "Basic Terraform Pipeline - Azure"
 
 # This workflow will trigger on one of two conditions:
 # 1. A pull request is opened or 2. a push is made to the main branch.
@@ -11,7 +11,6 @@ on:
   push:
     branches:
       - main
-
 
 # Here we define the job.
 # This pipeline uses self-hosted Ubuntu runner. 
@@ -32,7 +31,7 @@ jobs:
         id: checkout
         uses: actions/checkout@v3
 
-        # Next we authenticate to Azure.
+# Next we authenticate to Azure.
 # The Azure login action will injest the JSON we prepared earlier.
       - name: Azure Authentication
         id: login
@@ -42,7 +41,7 @@ jobs:
 
 # Many of the keys used to authenticate to Azure can be reused.
 # This reduces the number of secrets we will maintain.
-# We use jq to echo each relevant key value into a variable.
+# We use jq query and echo each relevant key value into a variable.
 # Then we echo the newly created variables to the GitHub Environmental.
       - name: JSON Parse
         id: parse
@@ -84,31 +83,32 @@ jobs:
 
 # We use pip to install Checkov. 
 # https://www.checkov.io/
+# The Checkov steps will only run if the trigger event was a pull request.
       - name: Install Checkov
         id: checkov
-                if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request'
         run: |
           pip install checkov
 
-# We run the first checkov test after we run Terraform init; we want checkov to examine the modules. 
-# --skip-check CKV_AZURE_50 skips one of the default checks, "Ensure Virtual Machine extensions are not installed" 
+# We run the first checkov test after we run Terraform init; we want Checkov to examine the modules. 
       - name: Checkov Static Test
         id: static
+        if: github.event_name == 'pull_request'
         run: |
-          checkov -d . --download-external-modules true --skip-check CKV_AZURE_50
+          checkov -d . --download-external-modules true
 
-# Here we run Terraform format - we will use the output later.
+# Here we run Terraform format.
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check -recursive
         continue-on-error: true
 
-# The step runs Terraform validate - we will use the output later.
+# The step runs Terraform validate.
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
 
-# Here we generate our Terraform plan. The output will be used later.
+# Here we generate our Terraform plan. The full output will be used in a later step.
       - name: Terraform Plan
         id: tplan
         env: 
@@ -145,7 +145,7 @@ jobs:
           script: |
             const output = `
             ### Pull Request Information
-            Please review this pull request. Approving the pull request will run Terraform Apply with the plan detailed below.
+            Please review this pull request. Merging the PR will run Terraform Apply with the plan detailed below.
 
             #### Terraform Checks
             Init: \`${{ steps.init.outcome }}\`
@@ -172,7 +172,7 @@ jobs:
             })
 
 # This step is also conditional on the workflow trigger.
-# If a push to main occurs (e.g. an approved pull request), Terraform apply will run.
+# If a push to main occurs (e.g. a merged pull request), Terraform apply will run.
       - name: Terraform Apply
         id: apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

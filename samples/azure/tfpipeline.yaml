@@ -1,0 +1,181 @@
+###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<
+### Basic Terraform Pipeline - Azure
+### Version: 1.0.0
+###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<###>-<
+name: "Basic Terraform Pipeline"
+
+# This workflow will trigger on one of two conditions:
+# 1. A pull request is opened or 2. a push is made to the main branch.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+
+# Here we define the job.
+# This pipeline uses self-hosted Ubuntu runner. 
+# Substitute "self-hosted" with "ubuntu-latest" to use a GitHub-hosted runner.
+jobs:
+  terraform:
+    name: 'Terraform - Ubuntu'
+    runs-on:    Self-hosted
+
+    defaults:
+      run:
+        shell: bash
+
+# This action clones our code down to the runner. 
+# https://github.com/actions/checkout
+    steps:
+      - name: Code Checkout
+        id: checkout
+        uses: actions/checkout@v3
+
+        # Next we authenticate to Azure.
+# The Azure login action will injest the JSON we prepared earlier.
+      - name: Azure Authentication
+        id: login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZJSON }}
+
+# Many of the keys used to authenticate to Azure can be reused.
+# This reduces the number of secrets we will maintain.
+# We use jq to echo each relevant key value into a variable.
+# Then we echo the newly created variables to the GitHub Environmental.
+      - name: JSON Parse
+        id: parse
+        env:
+          AZJSON: ${{ secrets.AZJSON }}
+        run: |
+          ARM_CLIENT_ID=$(echo $AZJSON | jq -r '.["clientId"]')
+          ARM_CLIENT_SECRET=$(echo $AZJSON | jq -r '.["clientSecret"]')
+          ARM_TENANT_ID=$(echo $AZJSON | jq -r '.["tenantId"]')
+          ARM_SUBSCRIPTION_ID=$(echo $AZJSON | jq -r '.["subscriptionId"]')
+          echo ARM_CLIENT_ID=$ARM_CLIENT_ID >> $GITHUB_ENV
+          echo ARM_CLIENT_SECRET=$ARM_CLIENT_SECRET >> $GITHUB_ENV
+          echo ARM_TENANT_ID=$ARM_TENANT_ID >> $GITHUB_ENV
+          echo ARM_SUBSCRIPTION_ID=$ARM_SUBSCRIPTION_ID >> $GITHUB_ENV
+
+# If you're using a private registry to host custom modules, you may need to configure a GitHub.
+# Using a fine-grained access token we give the runner access to the repos needed.
+# https://github.blog/2022-10-18-introducing-fine-grained-personal-access-tokens-for-github/
+      - name: Prepare Token for Private Registry
+        id: token
+        env:
+          TOKEN: ${{ secrets.GHTOKEN }}
+        run: |
+          echo "machine github.com login x password ${TOKEN}" > ~/.netrc
+          git config --global url."https://github.com/".insteadOf "git://github.com/"
+          git config --global advice.detachedHead false
+
+# This action installs Terraform on our runner. 
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v2.0.3
+        with:
+          terraform_version: 1.3.5
+
+# Here terraform init is run directly on the runner's shell. 
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init
+
+# We use pip to install Checkov. 
+# https://www.checkov.io/
+      - name: Install Checkov
+        id: checkov
+                if: github.event_name == 'pull_request'
+        run: |
+          pip install checkov
+
+# We run the first checkov test after we run Terraform init; we want checkov to examine the modules. 
+# --skip-check CKV_AZURE_50 skips one of the default checks, "Ensure Virtual Machine extensions are not installed" 
+      - name: Checkov Static Test
+        id: static
+        run: |
+          checkov -d . --download-external-modules true --skip-check CKV_AZURE_50
+
+# Here we run Terraform format - we will use the output later.
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+# The step runs Terraform validate - we will use the output later.
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+# Here we generate our Terraform plan. The output will be used later.
+      - name: Terraform Plan
+        id: tplan
+        env: 
+          TF_VAR_secret: '${{ secrets.example_secret }}'
+        run: |
+            terraform plan -no-color
+
+# We run terraform plan once again, but we export it to a file this time.
+# We injest the plan with Terraform show and stream the output to a .json file. 
+# Finally Checkov will run its tests against the .json file.
+      - name: Checkov Plan Test
+        id: cplan
+        if: github.event_name == 'pull_request'
+        env: 
+          TF_VAR_secret: '${{ secrets.example_secret }}'
+        run: |
+            terraform plan --out tfplan.binary
+            terraform show -json tfplan.binary > tfplan.json
+            ls
+            checkov -f tfplan.json --framework terraform_plan
+
+# This is only run when the workflow was triggered by a pull request.
+# A comment will be made on the pull request with the results of several steps.
+# The entire output of Terraform plan will also be available in an exapandable field. 
+# https://github.com/actions/github-script
+      - name: Pull Request Comment
+        id: comment
+        uses: actions/github-script@v3
+        if: github.event_name == 'pull_request'
+        env:
+          TPLAN: "terraform\n${{ steps.tplan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.GHTOKEN }}
+          script: |
+            const output = `
+            ### Pull Request Information
+            Please review this pull request. Approving the pull request will run Terraform Apply with the plan detailed below.
+
+            #### Terraform Checks
+            Init: \`${{ steps.init.outcome }}\`
+            Format: \`${{ steps.fmt.outcome }}\`
+            Validation: \`${{ steps.validate.outcome }}\`
+            Plan: \`${{ steps.tplan.outcome }}\`
+
+            #### Checkov
+            Static: \`${{ steps.static.outcome }}\`
+            Plan: \`${{ steps.cplan.outcome }}\`
+
+            <details><summary>Plan File</summary>
+          
+            \`\`\`${process.env.TPLAN}\`\`\`
+          
+            </details>
+
+            `
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+# This step is also conditional on the workflow trigger.
+# If a push to main occurs (e.g. an approved pull request), Terraform apply will run.
+      - name: Terraform Apply
+        id: apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          TF_VAR_secret: '${{ secrets.example_secret }}'
+        run: terraform apply -auto-approve

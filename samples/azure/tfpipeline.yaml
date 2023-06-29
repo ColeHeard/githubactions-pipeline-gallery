@@ -60,7 +60,7 @@ jobs:
 # If you're using a private registry to host custom modules, you may need to configure a GitHub.
 # Using a fine-grained access token we give the runner access to the repos needed.
 # https://github.blog/2022-10-18-introducing-fine-grained-personal-access-tokens-for-github/
-      - name: Prepare Token for Private Registry
+      - name: Git Config
         id: token
         env:
           TOKEN: ${{ secrets.GHTOKEN }}
@@ -109,6 +109,7 @@ jobs:
         run: terraform validate -no-color
 
 # Here we generate our Terraform plan. The full output will be used in a later step.
+# Also make note of the example environmental variable. This is the syntax used to pass secrets to Terraform. 
       - name: Terraform Plan
         id: tplan
         env: 

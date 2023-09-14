@@ -15,7 +15,7 @@ Other samples will be included in the future.
 |------|---------|---------|
 | **Basic SharePoint Framework Pipeline** | __spfxpipeline__ | 1.0.0 |
 | **Terraform Pipeline - Azure** | __tfpipeline__ | 1.0.0 |
-| **Autodoc Workflow - Terraform-docs** | __autodoc__ | 1.0.0 |
+| **Autodoc Workflow - Terraform-docs** | __autodoc__ | 1.0.1 |
 
 ---
 

@@ -8,6 +8,7 @@ name: "Autodoc Workflow - Terraform-docs"
 on:
   pull_request:
 
+# Selecting ubuntu-latest provisions a VM with latest stable image GitHub offers. 
 jobs:
   tfdocs:
     runs-on: ubuntu-latest
